@@ -1,0 +1,1031 @@
+ ---
+title: "prova01"
+format: pdf
+editor: visual
+---
+
+## Prova 01 questão 01
+
+### import de dados e pacotes
+
+```{r}
+library(quantmod) # Para usar o "getSymbols"
+library(ggplot2)
+library(ggfortify)
+library(forecast)
+library(tseries)
+library(fGarch)        # Para usar o garchFit
+library(FinTS)         # Para usar o ArchTest
+library(aTSA)          # Para usar o arch.test
+library(nortsTest)   # Para usar o arch.test
+
+start <- as.Date("2023-01-01")
+end <- as.Date("2023-12-01")
+
+dados.sp <- quantmod::getSymbols("^GSPC", src = "yahoo", from = start, to = end,
+auto.assign = FALSE)
+stdpoors <- na.omit(dados.sp)
+dados.dj <- quantmod::getSymbols("^DJI", src = "yahoo", from = start, to = end,
+auto.assign = FALSE)
+dowjones <- na.omit(dados.dj)
+dados.nasdaq <- quantmod::getSymbols("^IXIC", src = "yahoo", from = start, to =
+end, auto.assign = FALSE)
+nasdaq <- na.omit(dados.nasdaq)
+dados.bovespa <- quantmod::getSymbols("^BVSP", src = "yahoo", from = start, to =
+end, auto.assign = FALSE)
+bovespa <- na.omit(dados.bovespa)
+dados.brent <- quantmod::getSymbols("BZ=F", src = "yahoo", from = start, to = end,
+auto.assign = FALSE)
+brent <- na.omit(dados.brent)
+dados.dolar.real <- quantmod::getSymbols("BRL=X", src = "yahoo", from = start, to
+= end, auto.assign = FALSE)
+dolar.real <- na.omit(dados.dolar.real)
+dados.btc <- quantmod::getSymbols("BTC-USD", src = "yahoo", from = start, to =
+end, auto.assign = FALSE)
+dolar.bitcoin <- na.omit(dados.btc)
+stdpoors
+```
+
+## S&P 500
+### tranformar para um ts
+```{r}
+stdpoors.ts <- ts(stdpoors$GSPC.Close)
+```
+
+
+#### Plotar a série no nível
+vamos usar o valor de fechamento para fazer os procedimentos
+
+```{r}
+plot(stdpoors.ts, xlab = "Tempo", ylab = "preço", main = "S&P 500")
+```
+
+#### Fazer o teste ADF.
+```{r}
+adf.test(stdpoors.ts)
+```
+
+como o p-valor é maior que 0.05, não rejeitamos a hipótese nula de que a série é não estacionária.
+
+#### Obter a série do log.
+```{r}
+stdpoors_log.ts <- log(stdpoors.ts)
+plot(stdpoors_log.ts, xlab = "Tempo", ylab = "log_preço", main = "S&P 500")
+```
+
+#### Obter a série da diferença do log.
+```{r}
+stdpoors_log_diff.ts <- diff(stdpoors_log.ts)
+```
+
+#### Fazer novamente o teste ADF.
+```{r}
+adf.test(stdpoors_log_diff.ts)
+```
+
+como o p-valor é menor que 0.05, rejeitamos a hipótese nula de que a série é não estacionária. então podemos usar a série da diferença do log para fazer a análise.
+
+#### Plotar a série da diferença do log.
+```{r}
+plot(stdpoors_log_diff.ts, xlab = "Tempo", ylab = "diff_log_preço", main = "S&P 500")
+```
+
+#### Construir o correlograma da série da diferença do log.
+```{r}
+acf(stdpoors_log_diff.ts,lag.max=50)
+pacf(stdpoors_log_diff.ts,lag.max=50)
+```
+
+### Identificar o processo ARMA adequado.
+com a análise podemos ver que o melhor modelo para o diff_log_preço é o MA(1)
+
+### Estimar o modelo ARMA e verificar a significância dos coeficientes.
+
+```{r}
+stdpoors_log_diff.ts.arima <- arima(stdpoors_log_diff.ts, order = c(0,0,1))
+summary(stdpoors_log_diff.ts.arima)
+stdpoors_log_diff.ts.arima2 <- arima(stdpoors_log_diff.ts, order = c(0,0,0))
+summary(stdpoors_log_diff.ts.arima2)
+stdpoors_log_diff.ts.arima3 <- arima(stdpoors_log_diff.ts, order = c(1,0,0))
+summary(stdpoors_log_diff.ts.arima3)
+stdpoors_log_diff.ts.arima4 <- arima(stdpoors_log_diff.ts, order = c(1,0,1))
+summary(stdpoors_log_diff.ts.arima4)
+```
+
+### plot akaike
+```{r}
+stdpoors_log_diff.ts.arima$aic
+stdpoors_log_diff.ts.arima2$aic
+stdpoors_log_diff.ts.arima3$aic
+stdpoors_log_diff.ts.arima4$aic
+```
+
+podemos ver que pelo menor AIC o melhor modelo é o ARIMA(1,0,1) e que os coeficientes são significativos.
+
+### Fazer o teste e plotar os gráficos associados ao teste de Ljung-Box para avaliar a correlação dos resíduos.
+
+```{r}
+tsdisplay(arima.errors(stdpoors_log_diff.ts.arima4))
+Box.test(resid(stdpoors_log_diff.ts.arima4), type = "Ljung", lag = 20, fitdf = 2)
+```
+
+com isso a hipótese nula não pode ser rejeitada, então os resíduos são independentes.
+
+### Para o melhor modelo ARMA estimado, obter o correlograma dos resíduos ao quadrado.
+
+```{r}
+par(mfrow=c(2,1))
+acf(stdpoors_log_diff.ts.arima4$residuals^2, lag.max=20)
+pacf(stdpoors_log_diff.ts.arima4$residuals^2, lag.max = 20)
+```
+
+
+### Fazer o teste para efeitos ARCH.
+```{r}
+residuos_quadrados <- stdpoors_log_diff.ts.arima4$residuals^2
+residuos_quadrados
+ArchTest(residuos_quadrados, lag = 3)
+```
+
+### Identificar o melhor processo ARCH/GARCH.
+
+```{r}
+aTSA::arch.test(stdpoors_log_diff.ts.arima4)
+nortsTest::arch.test(stdpoors_log_diff.ts, lag.max=6)
+```
+
+
+### Estimar o modelo ARMA-GARCH e verificar a significância dos coeficientes.
+Como o modelo não apresenta heterocedasticidade condicional, não é necessário estimar o modelo ARMA-GARCH.
+
+### Avaliar se os resíduos gerados têm comportamento de ruído branco.
+```{r}	
+Box.test(stdpoors_log_diff.ts.arima4$residuals, type = "Ljung", lag = 20, fitdf = 2)
+```
+
+com isso vemos que a hipótese nula não pode ser rejeitada, então os resíduos são independentes.
+
+### Fazer as previsões considerando os 14 últimos valores da série.
+como o modelo é ARIMA(1,0,1) então vamos usar os 14 últimos valores da série para fazer a previsão.
+
+```{r}
+stdpoors_log_diff.ts.arima4
+previsao <- predict(stdpoors_log_diff.ts.arima4, n.ahead = 14)
+previsao
+```
+
+## Dow Jones
+### tranformar para um ts
+```{r}
+dowjones
+dowjones.ts <- ts(dowjones$DJI.Close)
+```
+
+
+#### Plotar a série no nível
+vamos usar o valor de fechamento para fazer os procedimentos
+
+```{r}
+plot(dowjones.ts, xlab = "Tempo", ylab = "preço", main = "Dow Jones")
+```
+
+#### Fazer o teste ADF.
+```{r}
+adf.test(dowjones.ts)
+```
+
+como o p-valor é maior que 0.05, não rejeitamos a hipótese nula de que a série é não estacionária.
+
+#### Obter a série do log.
+```{r}
+dowjones_log.ts <- log(dowjones.ts)
+plot(dowjones_log.ts, xlab = "Tempo", ylab = "log_preço", main = "Dow Jones")
+```
+
+#### Obter a série da diferença do log.
+```{r}
+dowjones_log_diff.ts <- diff(dowjones_log.ts)
+```
+
+#### Fazer novamente o teste ADF.
+```{r}
+adf.test(dowjones_log_diff.ts)
+```
+
+como o p-valor é menor que 0.05, rejeitamos a hipótese nula de que a série é não estacionária. então podemos usar a série da diferença do log para fazer a análise.
+
+#### Plotar a série da diferença do log.
+```{r}
+plot(dowjones_log_diff.ts, xlab = "Tempo", ylab = "diff_log_preço", main = "Dow Jones")
+```
+
+#### Construir o correlograma da série da diferença do log.
+```{r}
+acf(dowjones_log_diff.ts,lag.max=50)
+pacf(dowjones_log_diff.ts,lag.max=50)
+```
+
+### Identificar o processo ARMA adequado.
+com a análise podemos ver que o melhor modelo para o diff_log_preço é o MA(1)
+
+### Estimar o modelo ARMA e verificar a significância dos coeficientes.
+
+```{r}
+dowjones_log_diff.ts.arima <- arima(dowjones_log_diff.ts, order = c(0,0,1))
+summary(dowjones_log_diff.ts.arima)
+dowjones_log_diff.ts.arima2 <- arima(dowjones_log_diff.ts, order = c(0,0,0))
+summary(dowjones_log_diff.ts.arima2)
+dowjones_log_diff.ts.arima3 <- arima(dowjones_log_diff.ts, order = c(1,0,0))
+summary(dowjones_log_diff.ts.arima3)
+dowjones_log_diff.ts.arima4 <- arima(dowjones_log_diff.ts, order = c(1,0,1))
+summary(dowjones_log_diff.ts.arima4)
+```
+
+### plot akaike
+```{r}
+dowjones_log_diff.ts.arima$aic
+dowjones_log_diff.ts.arima2$aic
+dowjones_log_diff.ts.arima3$aic
+dowjones_log_diff.ts.arima4$aic
+```
+
+podemos ver que pelo menor AIC o melhor modelo é o ARIMA(0,0,0) e que o que indica que os coeficientes não são significativos.
+
+
+### Fazer o teste e plotar os gráficos associados ao teste de Ljung-Box para avaliar a correlação dos resíduos.
+
+```{r}
+tsdisplay(arima.errors(dowjones_log_diff.ts.arima2))
+Box.test(resid(dowjones_log_diff.ts.arima2), type = "Ljung", lag = 20, fitdf = 0)
+```
+
+com isso a hipótese nula não pode ser rejeitada, então os resíduos são independentes.
+
+### Para o melhor modelo ARMA estimado, obter o correlograma dos resíduos ao quadrado.
+
+```{r}
+par(mfrow=c(2,1))
+acf(dowjones_log_diff.ts.arima2$residuals^2, lag.max=20)
+pacf(dowjones_log_diff.ts.arima2$residuals^2, lag.max = 20)
+```
+
+
+### Fazer o teste para efeitos ARCH.
+```{r}
+residuos_quadrados <- dowjones_log_diff.ts.arima2$residuals^2
+residuos_quadrados
+ArchTest(residuos_quadrados, lag = 16)
+```
+
+### Identificar o melhor processo ARCH/GARCH.
+
+```{r}
+aTSA::arch.test(dowjones_log_diff.ts.arima2)
+nortsTest::arch.test(dowjones_log_diff.ts, lag.max=16)
+```
+
+
+### Estimar o modelo ARMA-GARCH e verificar a significância dos coeficientes.
+Como o modelo não apresenta heterocedasticidade condicional, não é necessário estimar o modelo ARMA-GARCH.
+
+### Avaliar se os resíduos gerados têm comportamento de ruído branco.
+```{r}	
+Box.test(dowjones_log_diff.ts.arima2$residuals, type = "Ljung", lag = 20, fitdf = 2)
+```
+
+com isso vemos que a hipótese nula não pode ser rejeitada, então os resíduos são independentes.
+
+### Fazer as previsões considerando os 14 últimos valores da série.
+como o modelo é ARIMA(1,0,1) então vamos usar os 14 últimos valores da série para fazer a previsão.
+
+```{r}
+dowjones_log_diff.ts.arima2
+previsao <- predict(dowjones_log_diff.ts.arima2, n.ahead = 14)
+previsao
+```
+
+
+
+## NASDAQ
+### tranformar para um ts
+```{r}
+nasdaq
+nasdaq.ts <- ts(nasdaq$IXIC.Close)
+```
+
+
+#### Plotar a série no nível
+vamos usar o valor de fechamento para fazer os procedimentos
+
+```{r}
+plot(nasdaq.ts, xlab = "Tempo", ylab = "preço", main = "NASDAQ")
+```
+
+#### Fazer o teste ADF.
+```{r}
+adf.test(nasdaq.ts)
+```
+
+como o p-valor é maior que 0.05, não rejeitamos a hipótese nula de que a série é não estacionária.
+
+#### Obter a série do log.
+```{r}
+nasdaq_log.ts <- log(nasdaq.ts)
+plot(nasdaq_log.ts, xlab = "Tempo", ylab = "log_preço", main = "NASDAQ")
+```
+
+#### Obter a série da diferença do log.
+```{r}
+nasdaq_log_diff.ts <- diff(nasdaq_log.ts)
+```
+
+#### Fazer novamente o teste ADF.
+```{r}
+adf.test(nasdaq_log_diff.ts)
+```
+
+como o p-valor é menor que 0.05, rejeitamos a hipótese nula de que a série é não estacionária. então podemos usar a série da diferença do log para fazer a análise.
+
+#### Plotar a série da diferença do log.
+```{r}
+plot(nasdaq_log_diff.ts, xlab = "Tempo", ylab = "diff_log_preço", main = "NASDAQ")
+```
+
+#### Construir o correlograma da série da diferença do log.
+```{r}
+acf(nasdaq_log_diff.ts,lag.max=50)
+pacf(nasdaq_log_diff.ts,lag.max=50)
+```
+
+### Identificar o processo ARMA adequado.
+com a análise podemos ver que o melhor modelo para o diff_log_preço é o MA(1)
+
+### Estimar o modelo ARMA e verificar a significância dos coeficientes.
+
+```{r}
+nasdaq_log_diff.ts.arima <- arima(nasdaq_log_diff.ts, order = c(0,0,1))
+summary(nasdaq_log_diff.ts.arima)
+nasdaq_log_diff.ts.arima2 <- arima(nasdaq_log_diff.ts, order = c(0,0,0))
+summary(nasdaq_log_diff.ts.arima2)
+nasdaq_log_diff.ts.arima3 <- arima(nasdaq_log_diff.ts, order = c(1,0,0))
+summary(nasdaq_log_diff.ts.arima3)
+nasdaq_log_diff.ts.arima4 <- arima(nasdaq_log_diff.ts, order = c(1,0,1))
+summary(nasdaq_log_diff.ts.arima4)
+```
+
+### plot akaike
+```{r}
+nasdaq_log_diff.ts.arima$aic
+nasdaq_log_diff.ts.arima2$aic
+nasdaq_log_diff.ts.arima3$aic
+nasdaq_log_diff.ts.arima4$aic
+```
+
+podemos ver que pelo menor AIC o melhor modelo é o ARIMA(0,0,0) e que nenhum dos coeficientes são significativos.
+
+### Fazer o teste e plotar os gráficos associados ao teste de Ljung-Box para avaliar a correlação dos resíduos.
+
+```{r}
+tsdisplay(arima.errors(nasdaq_log_diff.ts.arima2))
+Box.test(resid(nasdaq_log_diff.ts.arima2), type = "Ljung", lag = 20, fitdf = 0)
+```
+
+com isso a hipótese nula não pode ser rejeitada, então os resíduos são independentes.
+
+### Para o melhor modelo ARMA estimado, obter o correlograma dos resíduos ao quadrado.
+
+```{r}
+par(mfrow=c(2,1))
+acf(nasdaq_log_diff.ts.arima2$residuals^2, lag.max=20)
+pacf(nasdaq_log_diff.ts.arima2$residuals^2, lag.max = 20)
+```
+
+
+### Fazer o teste para efeitos ARCH.
+```{r}
+residuos_quadrados <- nasdaq_log_diff.ts.arima2$residuals^2
+residuos_quadrados
+ArchTest(residuos_quadrados, lag = 3)
+```
+
+### Identificar o melhor processo ARCH/GARCH.
+
+```{r}
+aTSA::arch.test(nasdaq_log_diff.ts.arima2)
+nortsTest::arch.test(nasdaq_log_diff.ts, lag.max=6)
+```
+
+
+### Estimar o modelo ARMA-GARCH e verificar a significância dos coeficientes.
+Como o modelo não apresenta heterocedasticidade condicional, não é necessário estimar o modelo ARMA-GARCH.
+
+### Avaliar se os resíduos gerados têm comportamento de ruído branco.
+```{r}	
+Box.test(nasdaq_log_diff.ts.arima2$residuals, type = "Ljung", lag = 20, fitdf = 2)
+```
+
+com isso vemos que a hipótese nula não pode ser rejeitada, então os resíduos são independentes.
+
+### Fazer as previsões considerando os 14 últimos valores da série.
+como o modelo é ARIMA(0,0,0) então vamos usar os 14 últimos valores da série para fazer a previsão.
+
+```{r}
+nasdaq_log_diff.ts.arima2
+previsao <- predict(nasdaq_log_diff.ts.arima2, n.ahead = 14)
+previsao
+```
+
+
+## BOVESPA
+### tranformar para um ts
+```{r}
+bovespa.ts <- ts(bovespa$BVSP.Close)
+```
+
+
+#### Plotar a série no nível
+vamos usar o valor de fechamento para fazer os procedimentos
+
+```{r}
+plot(bovespa.ts, xlab = "Tempo", ylab = "preço", main = "BOVESPA")
+```
+
+#### Fazer o teste ADF.
+```{r}
+adf.test(bovespa.ts)
+```
+
+como o p-valor é maior que 0.05, não rejeitamos a hipótese nula de que a série é não estacionária.
+
+#### Obter a série do log.
+```{r}
+bovespa_log.ts <- log(bovespa.ts)
+plot(bovespa_log.ts, xlab = "Tempo", ylab = "log_preço", main = "BOVESPA")
+```
+
+#### Obter a série da diferença do log.
+```{r}
+bovespa_log_diff.ts <- diff(bovespa_log.ts)
+```
+
+#### Fazer novamente o teste ADF.
+```{r}
+adf.test(bovespa_log_diff.ts)
+```
+
+como o p-valor é menor que 0.05, rejeitamos a hipótese nula de que a série é não estacionária. então podemos usar a série da diferença do log para fazer a análise.
+
+#### Plotar a série da diferença do log.
+```{r}
+plot(bovespa_log_diff.ts, xlab = "Tempo", ylab = "diff_log_preço", main = "BOVESPA")
+```
+
+#### Construir o correlograma da série da diferença do log.
+```{r}
+acf(bovespa_log_diff.ts,lag.max=50)
+pacf(bovespa_log_diff.ts,lag.max=50)
+```
+
+### Identificar o processo ARMA adequado.
+com a análise podemos ver que o melhor modelo para o diff_log_preço é o MA(1)
+
+### Estimar o modelo ARMA e verificar a significância dos coeficientes.
+
+```{r}
+bovespa_log_diff.ts.arima <- arima(bovespa_log_diff.ts, order = c(0,0,1))
+summary(bovespa_log_diff.ts.arima)
+bovespa_log_diff.ts.arima2 <- arima(bovespa_log_diff.ts, order = c(0,0,0))
+summary(bovespa_log_diff.ts.arima2)
+bovespa_log_diff.ts.arima3 <- arima(bovespa_log_diff.ts, order = c(1,0,0))
+summary(bovespa_log_diff.ts.arima3)
+bovespa_log_diff.ts.arima4 <- arima(bovespa_log_diff.ts, order = c(1,0,1))
+summary(bovespa_log_diff.ts.arima4)
+```
+
+### plot akaike
+```{r}
+bovespa_log_diff.ts.arima$aic
+bovespa_log_diff.ts.arima2$aic
+bovespa_log_diff.ts.arima3$aic
+bovespa_log_diff.ts.arima4$aic
+```
+
+podemos ver que pelo menor AIC o melhor modelo é o ARIMA(0,0,0) e que os coeficientes são significativos.
+
+### Fazer o teste e plotar os gráficos associados ao teste de Ljung-Box para avaliar a correlação dos resíduos.
+
+```{r}
+tsdisplay(arima.errors(bovespa_log_diff.ts.arima2))
+Box.test(resid(bovespa_log_diff.ts.arima2), type = "Ljung", lag = 20, fitdf = 0)
+```
+
+com isso a hipótese nula não pode ser rejeitada, então os resíduos são independentes.
+
+### Para o melhor modelo ARMA estimado, obter o correlograma dos resíduos ao quadrado.
+
+```{r}
+par(mfrow=c(2,1))
+acf(bovespa_log_diff.ts.arima2$residuals^2, lag.max=20)
+pacf(bovespa_log_diff.ts.arima2$residuals^2, lag.max = 20)
+```
+
+
+### Fazer o teste para efeitos ARCH.
+```{r}
+residuos_quadrados <- bovespa_log_diff.ts.arima2$residuals^2
+residuos_quadrados
+ArchTest(residuos_quadrados, lag = 3)
+```
+
+### Identificar o melhor processo ARCH/GARCH.
+
+```{r}
+aTSA::arch.test(bovespa_log_diff.ts.arima2)
+nortsTest::arch.test(bovespa_log_diff.ts, lag.max=6)
+```
+
+
+### Estimar o modelo ARMA-GARCH e verificar a significância dos coeficientes.
+Como o modelo não apresenta heterocedasticidade condicional, não é necessário estimar o modelo ARMA-GARCH.
+
+### Avaliar se os resíduos gerados têm comportamento de ruído branco.
+```{r}	
+Box.test(bovespa_log_diff.ts.arima2$residuals, type = "Ljung", lag = 20, fitdf = 2)
+```
+
+com isso vemos que a hipótese nula não pode ser rejeitada, então os resíduos são independentes.
+
+### Fazer as previsões considerando os 14 últimos valores da série.
+como o modelo é ARIMA(0,0,0) então vamos usar os 14 últimos valores da série para fazer a previsão.
+
+```{r}
+bovespa_log_diff.ts.arima2
+previsao <- predict(bovespa_log_diff.ts.arima2, n.ahead = 14)
+previsao
+```
+
+
+## BRENT
+### tranformar para um ts
+```{r}
+brent.ts <- ts(brent[,4])
+```
+
+
+#### Plotar a série no nível
+vamos usar o valor de fechamento para fazer os procedimentos
+
+```{r}
+plot(brent.ts, xlab = "Tempo", ylab = "preço", main = "BRENT")
+```
+
+#### Fazer o teste ADF.
+```{r}
+adf.test(brent.ts)
+```
+
+como o p-valor é maior que 0.05, não rejeitamos a hipótese nula de que a série é não estacionária.
+
+#### Obter a série do log.
+```{r}
+brent_log.ts <- log(brent.ts)
+plot(brent_log.ts, xlab = "Tempo", ylab = "log_preço", main = "BRENT")
+```
+
+#### Obter a série da diferença do log.
+```{r}
+brent_log_diff.ts <- diff(brent_log.ts)
+```
+
+#### Fazer novamente o teste ADF.
+```{r}
+adf.test(brent_log_diff.ts)
+```
+
+como o p-valor é menor que 0.05, rejeitamos a hipótese nula de que a série é não estacionária. então podemos usar a série da diferença do log para fazer a análise.
+
+#### Plotar a série da diferença do log.
+```{r}
+plot(brent_log_diff.ts, xlab = "Tempo", ylab = "diff_log_preço", main = "BRENT")
+```
+
+#### Construir o correlograma da série da diferença do log.
+```{r}
+acf(brent_log_diff.ts,lag.max=50)
+pacf(brent_log_diff.ts,lag.max=50)
+```
+
+### Identificar o processo ARMA adequado.
+com a análise podemos ver que o melhor modelo para o diff_log_preço é o MA(1)
+
+### Estimar o modelo ARMA e verificar a significância dos coeficientes.
+
+```{r}
+brent_log_diff.ts.arima1 <- arima(brent_log_diff.ts, order = c(0,0,0))
+summary(brent_log_diff.ts.arima1)
+brent_log_diff.ts.arima2 <- arima(brent_log_diff.ts, order = c(0,0,1))
+summary(brent_log_diff.ts.arima2)
+brent_log_diff.ts.arima3 <- arima(brent_log_diff.ts, order = c(0,0,2))
+summary(brent_log_diff.ts.arima3)
+brent_log_diff.ts.arima4 <- arima(brent_log_diff.ts, order = c(0,0,3))
+summary(brent_log_diff.ts.arima4)
+brent_log_diff.ts.arima5 <- arima(brent_log_diff.ts, order = c(1,0,0))
+summary(brent_log_diff.ts.arima5)
+brent_log_diff.ts.arima6 <- arima(brent_log_diff.ts, order = c(1,0,1))
+summary(brent_log_diff.ts.arima6)
+brent_log_diff.ts.arima7 <- arima(brent_log_diff.ts, order = c(1,0,2))
+summary(brent_log_diff.ts.arima7)
+brent_log_diff.ts.arima8 <- arima(brent_log_diff.ts, order = c(1,0,3))
+summary(brent_log_diff.ts.arima8)
+
+```
+
+### plot akaike
+```{r}
+brent_log_diff.ts.arima1$aic
+brent_log_diff.ts.arima2$aic
+brent_log_diff.ts.arima3$aic
+brent_log_diff.ts.arima4$aic
+brent_log_diff.ts.arima5$aic
+brent_log_diff.ts.arima6$aic
+brent_log_diff.ts.arima7$aic
+brent_log_diff.ts.arima8$aic
+```
+
+podemos ver que pelo menor AIC o melhor modelo é o ARIMA(0,0,3) e que os coeficientes são significativos.
+
+### Fazer o teste e plotar os gráficos associados ao teste de Ljung-Box para avaliar a correlação dos resíduos.
+
+```{r}
+tsdisplay(arima.errors(brent_log_diff.ts.arima4))
+Box.test(resid(brent_log_diff.ts.arima4), type = "Ljung", lag = 20, fitdf = 2)
+```
+
+com isso a hipótese nula não pode ser rejeitada, então os resíduos são independentes.
+
+### Para o melhor modelo ARMA estimado, obter o correlograma dos resíduos ao quadrado.
+
+```{r}
+par(mfrow=c(2,1))
+acf(brent_log_diff.ts.arima4$residuals^2, lag.max=20)
+pacf(brent_log_diff.ts.arima4$residuals^2, lag.max = 20)
+```
+
+
+### Fazer o teste para efeitos ARCH.
+```{r}
+residuos_quadrados <- brent_log_diff.ts.arima4$residuals^2
+residuos_quadrados
+ArchTest(residuos_quadrados, lag = 3)
+```
+
+### Identificar o melhor processo ARCH/GARCH.
+
+```{r}
+aTSA::arch.test(brent_log_diff.ts.arima4)
+nortsTest::arch.test(brent_log_diff.ts, lag.max=6)
+```
+
+
+### Estimar o modelo ARMA-GARCH e verificar a significância dos coeficientes.
+Como o modelo não apresenta heterocedasticidade condicional, não é necessário estimar o modelo ARMA-GARCH.
+
+### Avaliar se os resíduos gerados têm comportamento de ruído branco.
+```{r}	
+Box.test(brent_log_diff.ts.arima4$residuals, type = "Ljung", lag = 20, fitdf = 2)
+```
+
+com isso vemos que a hipótese nula não pode ser rejeitada, então os resíduos são independentes.
+
+### Fazer as previsões considerando os 14 últimos valores da série.
+como o modelo é ARIMA(1,0,1) então vamos usar os 14 últimos valores da série para fazer a previsão.
+
+```{r}
+brent_log_diff.ts.arima4
+previsao <- predict(brent_log_diff.ts.arima4, n.ahead = 14)
+previsao
+```
+
+## DOLAR_REAL
+### tranformar para um ts
+```{r}
+dolar.real.ts <- ts(dolar.real[,4])
+```
+
+
+#### Plotar a série no nível
+vamos usar o valor de fechamento para fazer os procedimentos
+
+```{r}
+plot(dolar.real.ts, xlab = "Tempo", ylab = "preço", main = "DOLAR_REAL")
+```
+
+#### Fazer o teste ADF.
+```{r}
+adf.test(dolar.real.ts)
+```
+
+como o p-valor é maior que 0.05, não rejeitamos a hipótese nula de que a série é não estacionária.
+
+#### Obter a série do log.
+```{r}
+dolar.real_log.ts <- log(dolar.real.ts)
+plot(dolar.real_log.ts, xlab = "Tempo", ylab = "log_preço", main = "DOLAR_REAL")
+```
+
+#### Obter a série da diferença do log.
+```{r}
+dolar.real_log_diff.ts <- diff(dolar.real_log.ts)
+```
+
+#### Fazer novamente o teste ADF.
+```{r}
+adf.test(dolar.real_log_diff.ts)
+```
+
+como o p-valor é menor que 0.05, rejeitamos a hipótese nula de que a série é não estacionária. então podemos usar a série da diferença do log para fazer a análise.
+
+#### Plotar a série da diferença do log.
+```{r}
+plot(dolar.real_log_diff.ts, xlab = "Tempo", ylab = "diff_log_preço", main = "DOLAR_REAL")
+```
+
+#### Construir o correlograma da série da diferença do log.
+```{r}
+acf(dolar.real_log_diff.ts,lag.max=50)
+pacf(dolar.real_log_diff.ts,lag.max=50)
+```
+
+### Identificar o processo ARMA adequado.
+com a análise podemos ver que o melhor modelo para o diff_log_preço é o MA(1)
+
+### Estimar o modelo ARMA e verificar a significância dos coeficientes.
+
+```{r}
+dolar.real_log_diff.ts.arima <- arima(dolar.real_log_diff.ts, order=c(5,0,5))    
+summary(dolar.real_log_diff.ts.arima)
+
+dolar.real_log_diff.ts.arima2 <- arima(dolar.real_log_diff.ts, order=c(1,0,0))    
+summary(dolar.real_log_diff.ts.arima2)
+
+dolar.real_log_diff.ts.arima3 <- arima(dolar.real_log_diff.ts, order=c(0,0,1))    
+summary(dolar.real_log_diff.ts.arima3)
+
+dolar.real_log_diff.ts.arima4 <- arima(dolar.real_log_diff.ts, order=c(5,0,0))    
+summary(dolar.real_log_diff.ts.arima4)
+
+dolar.real_log_diff.ts.arima5 <- arima(dolar.real_log_diff.ts, order=c(5,0,0), fixed = c(0, 0, 0, 0,NA,NA))    
+summary(dolar.real_log_diff.ts.arima5)
+
+dolar.real_log_diff.ts.arima6 <- arima(dolar.real_log_diff.ts, order=c(5,0,5), fixed = c(0, 0, 0, 0,NA, 0, 0, 0, 0,NA,NA))    
+summary(dolar.real_log_diff.ts.arima6)
+
+dolar.real_log_diff.ts.arima7 <- arima(dolar.real_log_diff.ts, order=c(0,0,5), fixed = c(0, 0, 0, 0,NA,NA))    
+summary(dolar.real_log_diff.ts.arima7)
+```
+
+### plot akaike
+```{r}
+dolar.real_log_diff.ts.arima$aic
+dolar.real_log_diff.ts.arima2$aic
+dolar.real_log_diff.ts.arima3$aic
+dolar.real_log_diff.ts.arima4$aic
+dolar.real_log_diff.ts.arima5$aic
+dolar.real_log_diff.ts.arima6$aic
+dolar.real_log_diff.ts.arima7$aic
+```
+
+podemos ver que pelo menor AIC o melhor modelo é o ARIMA(5,0,5) e que os coeficientes são significativos.
+
+### Fazer o teste e plotar os gráficos associados ao teste de Ljung-Box para avaliar a correlação dos resíduos.
+
+```{r}
+tsdisplay(arima.errors(dolar.real_log_diff.ts.arima))
+Box.test(resid(dolar.real_log_diff.ts.arima), type = "Ljung", lag = 20, fitdf = 10)
+```
+
+com isso a hipótese nula não pode ser rejeitada, então os resíduos são independentes.
+
+### Para o melhor modelo ARMA estimado, obter o correlograma dos resíduos ao quadrado.
+
+```{r}
+par(mfrow=c(2,1))
+acf(dolar.real_log_diff.ts.arima$residuals^2, lag.max=20)
+pacf(dolar.real_log_diff.ts.arima$residuals^2, lag.max = 20)
+```
+
+
+### Fazer o teste para efeitos ARCH.
+```{r}
+residuos_quadrados <- dolar.real_log_diff.ts.arima$residuals^2
+residuos_quadrados
+ArchTest(residuos_quadrados, lag = 3)
+```
+
+### Identificar o melhor processo ARCH/GARCH.
+
+```{r}
+aTSA::arch.test(dolar.real_log_diff.ts.arima)
+nortsTest::arch.test(dolar.real_log_diff.ts, lag.max=6)
+```
+
+
+### Estimar o modelo ARMA-GARCH e verificar a significância dos coeficientes.
+Como o modelo não apresenta heterocedasticidade condicional, não é necessário estimar o modelo ARMA-GARCH.
+
+### Avaliar se os resíduos gerados têm comportamento de ruído branco.
+```{r}	
+Box.test(dolar.real_log_diff.ts.arima$residuals, type = "Ljung", lag = 20, fitdf = 2)
+```
+
+com isso vemos que a hipótese nula não pode ser rejeitada, então os resíduos são independentes.
+
+### Fazer as previsões considerando os 14 últimos valores da série.
+como o modelo é ARIMA(1,0,1) então vamos usar os 14 últimos valores da série para fazer a previsão.
+
+```{r}
+dolar.real_log_diff.ts.arima
+previsao <- predict(dolar.real_log_diff.ts.arima, n.ahead = 14)
+previsao
+```
+
+## DOLAR BITCOIN
+### tranformar para um ts
+```{r}
+dolar.bitcoin.ts <- ts(dolar.bitcoin[,4])
+```
+
+
+#### Plotar a série no nível
+vamos usar o valor de fechamento para fazer os procedimentos
+
+```{r}
+plot(dolar.bitcoin.ts, xlab = "Tempo", ylab = "preço", main = "DOLAR BITCOIN")
+```
+
+#### Fazer o teste ADF.
+```{r}
+adf.test(dolar.bitcoin.ts)
+```
+
+como o p-valor é maior que 0.05, não rejeitamos a hipótese nula de que a série é não estacionária.
+
+#### Obter a série do log.
+```{r}
+dolar.bitcoin_log.ts <- log(dolar.bitcoin.ts)
+plot(dolar.bitcoin_log.ts, xlab = "Tempo", ylab = "log_preço", main = "DOLAR BITCOIN")
+```
+
+#### Obter a série da diferença do log.
+```{r}
+dolar.bitcoin_log_diff.ts <- diff(dolar.bitcoin_log.ts)
+```
+
+#### Fazer novamente o teste ADF.
+```{r}
+adf.test(dolar.bitcoin_log_diff.ts)
+```
+
+como o p-valor é menor que 0.05, rejeitamos a hipótese nula de que a série é não estacionária. então podemos usar a série da diferença do log para fazer a análise.
+
+#### Plotar a série da diferença do log.
+```{r}
+plot(dolar.bitcoin_log_diff.ts, xlab = "Tempo", ylab = "diff_log_preço", main = "DOLAR BITCOIN")
+```
+
+#### Construir o correlograma da série da diferença do log.
+```{r}
+acf(dolar.bitcoin_log_diff.ts,lag.max=50)
+pacf(dolar.bitcoin_log_diff.ts,lag.max=50)
+```
+
+### Identificar o processo ARMA adequado.
+com a análise podemos ver que o melhor modelo para o diff_log_preço é o MA(1)
+
+### Estimar o modelo ARMA e verificar a significância dos coeficientes.
+
+```{r}
+dolar.bitcoin_log_diff.ts.arima <- arima(dolar.bitcoin_log_diff.ts, order = c(0,0,1))
+summary(dolar.bitcoin_log_diff.ts.arima)
+dolar.bitcoin_log_diff.ts.arima2 <- arima(dolar.bitcoin_log_diff.ts, order = c(0,0,0))
+summary(dolar.bitcoin_log_diff.ts.arima2)
+dolar.bitcoin_log_diff.ts.arima3 <- arima(dolar.bitcoin_log_diff.ts, order = c(1,0,0))
+summary(dolar.bitcoin_log_diff.ts.arima3)
+dolar.bitcoin_log_diff.ts.arima4 <- arima(dolar.bitcoin_log_diff.ts, order = c(1,0,1))
+summary(dolar.bitcoin_log_diff.ts.arima4)
+```
+
+### plot akaike
+```{r}
+dolar.bitcoin_log_diff.ts.arima$aic
+dolar.bitcoin_log_diff.ts.arima2$aic
+dolar.bitcoin_log_diff.ts.arima3$aic
+dolar.bitcoin_log_diff.ts.arima4$aic
+```
+
+podemos ver que pelo menor AIC o melhor modelo é o ARIMA(0,0,0) e que os coeficientes são significativos.
+
+### Fazer o teste e plotar os gráficos associados ao teste de Ljung-Box para avaliar a correlação dos resíduos.
+
+```{r}
+tsdisplay(arima.errors(dolar.bitcoin_log_diff.ts.arima2))
+Box.test(resid(dolar.bitcoin_log_diff.ts.arima2), type = "Ljung", lag = 20, fitdf = 0)
+```
+
+com isso a hipótese nula não pode ser rejeitada, então os resíduos são independentes.
+
+### Para o melhor modelo ARMA estimado, obter o correlograma dos resíduos ao quadrado.
+
+```{r}
+par(mfrow=c(2,1))
+acf(dolar.bitcoin_log_diff.ts.arima2$residuals^2, lag.max=20)
+pacf(dolar.bitcoin_log_diff.ts.arima2$residuals^2, lag.max = 20)
+```
+
+### Fazer o teste para efeitos ARCH.
+```{r}
+residuos_quadrados <- dolar.bitcoin_log_diff.ts.arima2$residuals^2
+residuos_quadrados
+ArchTest(residuos_quadrados, lag = 3)
+```
+
+### Identificar o melhor processo ARCH/GARCH.
+
+```{r}
+aTSA::arch.test(dolar.bitcoin_log_diff.ts.arima2)
+nortsTest::arch.test(dolar.bitcoin_log_diff.ts, lag.max=6)
+```
+
+
+### Estimar o modelo ARMA-GARCH e verificar a significância dos coeficientes.
+O modelo apresenta heterocedasticidade condicional, então é necessário estimar o modelo ARMA-GARCH.
+
+```{r}
+dolar.bitcoin_log_diff.ts.arima2$aic
+dolar.bitcoin_log_diff.ts.arima2.garch <- garchFit(~ garch(1,1), data = dolar.bitcoin_log_diff.ts, trace = T)
+dolar.bitcoin_log_diff.ts.arima2.garch
+```
+
+### Avaliar se os resíduos gerados têm comportamento de ruído branco.
+```{r}	
+Box.test(dolar.bitcoin_log_diff.ts.arima2$residuals, type = "Ljung", lag = 20, fitdf = 2)
+```
+
+com isso vemos que a hipótese nula não pode ser rejeitada, então os resíduos são independentes.
+
+### Fazer as previsões considerando os 14 últimos valores da série.
+
+
+```{r}
+dolar.bitcoin_log_diff.ts.arima2.garch
+previsao <- predict(dolar.bitcoin_log_diff.ts.arima2.garch, n.ahead = 14)
+previsao
+```
+
+
+## Questão 02 [Dados com Sazonalidade]
+
+### importar os dados do excel com cada aba sendo uma série temporal
+```{r}
+library(readxl)
+dados_sazonalidade_uva <- read_excel("DADOS___EXERCICIO___2___SAZONALIDADE.xlsx", sheet = 'UVA')
+dados_sazonalidade_mamao <- read_excel("DADOS___EXERCICIO___2___SAZONALIDADE.xlsx", sheet = 'MAMÃO')
+dados_sazonalidade_manga <- read_excel("DADOS___EXERCICIO___2___SAZONALIDADE.xlsx", sheet = 'MANGA')
+dados_sazonalidade_uva
+dados_sazonalidade_mamao
+dados_sazonalidade_manga
+```
+
+### Plotar as séries dos dados de cada commodity;
+```{r}
+plot(dados_sazonalidade_uva$Preço, xlab = "Tempo", ylab = "preço", main = "UVA", type = "l", )
+plot(dados_sazonalidade_mamao$Preço, xlab = "Tempo", ylab = "preço", main = "MAMAO", type = "l")
+plot(dados_sazonalidade_manga$Preço, xlab = "Tempo", ylab = "preço", main = "MANGA", type = "l")
+```
+
+### Crie a série da diferença sazonal [lag 12] da série da diferença [não sazonal] do log de cada commodity;
+```{r}
+dados_sazonalidade_uva_log <- log(dados_sazonalidade_uva$Preço)
+dados_sazonalidade_uva_log_diff <- diff(dados_sazonalidade_uva_log)
+dados_sazonalidade_uva_log_diff_sazonal <- diff(dados_sazonalidade_uva_log_diff, lag = 12)
+dados_sazonalidade_mamao_log <- log(dados_sazonalidade_mamao$Preço)
+dados_sazonalidade_mamao_log_diff <- diff(dados_sazonalidade_mamao_log)
+dados_sazonalidade_mamao_log_diff_sazonal <- diff(dados_sazonalidade_mamao_log_diff, lag = 12)
+dados_sazonalidade_manga_log <- log(dados_sazonalidade_manga$Preço)
+dados_sazonalidade_manga_log_diff <- diff(dados_sazonalidade_manga_log)
+dados_sazonalidade_manga_log_diff_sazonal <- diff(dados_sazonalidade_manga_log_diff, lag = 12)
+dados_sazonalidade_uva_log_diff_sazonal <- ts(dados_sazonalidade_uva_log_diff_sazonal)
+dados_sazonalidade_mamao_log_diff_sazonal <- ts(dados_sazonalidade_mamao_log_diff_sazonal)
+dados_sazonalidade_manga_log_diff_sazonal <- ts(dados_sazonalidade_manga_log_diff_sazonal)
+```
+
+
+### Construa a FAC e a FACP [correlograma] para cada série e identifique o modelo mais adequado para cada caso;
+```{r}
+acf(dados_sazonalidade_uva_log_diff_sazonal,lag.max=50)
+pacf(dados_sazonalidade_uva_log_diff_sazonal,lag.max=50)
+acf(dados_sazonalidade_mamao_log_diff_sazonal,lag.max=50)
+pacf(dados_sazonalidade_mamao_log_diff_sazonal,lag.max=50)
+acf(dados_sazonalidade_manga_log_diff_sazonal,lag.max=50)
+pacf(dados_sazonalidade_manga_log_diff_sazonal,lag.max=50)
+```
